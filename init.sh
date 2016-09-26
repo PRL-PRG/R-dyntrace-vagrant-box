@@ -3,7 +3,7 @@ set -e
 
 SRC="/vagrant/R-dyntrace"
 USER="vagrant"
-BASHRC="/home/$USER/.bashrc"
+BASHRC="/home/$USER/.bash_profile"
 
 # requirements
 pkg install -y \
