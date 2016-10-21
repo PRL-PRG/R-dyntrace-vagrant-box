@@ -29,26 +29,178 @@
 
   Note that the sources are available from the `sandbox` directory so the code editing can be on your local machine. Debugging can be done by remote gdb.
 
-- In one terminal
+- Check the basics
   ```sh
+  [host]$ vagrant up
+  ...
   [host]$ vagrant ssh
-  [vagrant@ /vagrant/R-dyntrace]$ sudo share/dtrace/flowinfo.dtrace
+  [vagrant@ ~]$ cd /vagrant
+  [vagrant@ /vagrant]$ sudo ./colmeans-basic.sh
   ```
 
-- In second terminal
-  ```sh
-  [host]$ vagrant ssh
-  [vagrant@ /vagrant/R-dyntrace]$ src/main/R.bin
-  > basename("/")
-  ```
+  - This will run [`colmeans-basic.R`](https://github.com/PRL-PRG/R-dyntrace-vagrant-box/blob/master/sandbox/colmeans-basic.R) which traces the following R script:
+    ```r
+    len<-100000
 
-  this should show the following in the first terminal:
-  ```
-  DELTA(us) FLAGS TYPE     -- NAME
-          0     1 function -> base::basename (loc: <unknown>)
-         13     0 promise       path
-       1210     0 promise       path = `"/"` (type: 16)
-         16     0 builtin    -> basename
-         20     0 builtin    <- basename = `""` (16)
-         14     1 function <- base::basename = `""` (16) (loc: <unknown>)
-  ```
+    complexvec = complex(r=1:len,i=1:len)
+    dim(complexvec) = c(len/2,2)
+
+    compute <- function(x) colMeans(x)
+
+    system.time(compute(complexvec))
+    ```
+    using three different dtrace scripts:
+    - [flowinfo.dtrace](https://github.com/PRL-PRG/R-dyntrace/blob/master/share/dtrace/flowinfo.dtrace) showing the complete flow af an R script (_i.e._ the function calls, the builtins and the promise evaluation and variable lookups).
+    - [calltime.dtrace](https://github.com/PRL-PRG/R-dyntrace/blob/master/share/dtrace/calltime.dtrace) showing the count, exclusive and inclusive elapsed time of functions and builtins.
+    - [calltime-all.dtrace](https://github.com/PRL-PRG/R-dyntrace/blob/master/share/dtrace/calltime-all.dtrace) showing the the same as the `calltime`, but only within a scope of a given function.
+
+    The first one shows the complete flow of the script :
+
+    - example output of flowinfo:
+    ```
+    DELTA(us) FLAGS TYPE     -- NAME
+        0     0 builtin  -> baseenv
+        0     0 builtin  <- baseenv = `<environment>` (4)
+        0     0 function -> glue (loc: <unknown>)
+        0     0 builtin    -> list
+        0     0 builtin    <- list = `list("R-dyntrace", "library", "base", "R", "base")` (19)
+        0     0 promise       sep
+        0     0 promise       sep = `"/"` (type: 16)
+        0     0 promise       collapse
+        0     0 promise       collapse = `NULL` (type: 0)
+        0     0 function <- glue = `"R-dyntrace/library/base/R/base"` (16) (loc: <unknown>)
+        0     0 function -> ..lazyLoad (loc: <unknown>)
+        0     0 function   -> glue (loc: <unknown>)
+        0     0 builtin      -> list
+        0     0 promise           filebase
+        0     0 promise           filebase = `"R-dyntrace/library/base/R/base"` (type: 16)
+        0     0 builtin      <- list = `list("R-dyntrace/library/base/R/base", "rdx")` (19)
+        0     0 promise         sep
+        0     0 promise         sep = `"."` (type: 16)
+        0     0 promise         collapse
+        0     0 promise         collapse = `NULL` (type: 0)
+        0     0 function   <- glue = `"R-dyntrace/library/base/R/base.rdx"` (16) (loc: <unknown>)
+        0     0 function   -> glue (loc: <unknown>)
+        0     0 builtin      -> list
+        0     0 lookup            filebase = `"R-dyntrace/library/base/R/base"` (type: 16)
+        0     0 builtin      <- list = `list("R-dyntrace/library/base/R/base", "rdb")` (19)
+    ```
+
+    - example output of calltime:    
+      ```
+      Tracing R... Hit Ctrl+c to exit.
+
+      Count
+         TYPE       NAME                                COUNT
+         builtin    *                                       1
+         builtin    /                                       1
+         builtin    Im                                      1
+         builtin    Re                                      1
+         builtin    Sys.getlocale                           1
+         builtin    Sys.glob                                1
+         builtin    Version                                 1
+         builtin    capabilities                            1
+         builtin    complex                                 1
+         builtin    dim<-                                   1
+         builtin    dimnames                                1
+         builtin    gc                                      1
+         ...
+
+      Exclusive function elapsed times (us)
+         TYPE       NAME                                TOTAL
+         builtin    capabilities                            0
+         builtin    globalenv                               0
+         builtin    unlockBinding                           2
+         builtin    is.array                                2
+         builtin    dimnames                                3
+         builtin    sum                                     4
+         builtin    is.call                                 4
+         builtin    is.expression                           5
+         builtin    Sys.getlocale                           6
+         builtin    which.max                               6
+         builtin    is.character                            7
+         function   base::identical                         8
+         builtin    lengths                                 9
+         builtin    interactive                             9
+         function   base::.OptRequireMethods               10
+         ...
+
+      Inclusive function elapsed times (us)
+         TYPE       NAME                                TOTAL
+         builtin    capabilities                            0
+         builtin    globalenv                               0
+         builtin    unlockBinding                           2
+         builtin    is.array                                2
+         builtin    dimnames                                3
+         builtin    sum                                     4
+         builtin    is.call                                 4
+         builtin    is.expression                           5
+         builtin    Sys.getlocale                           6
+         builtin    which.max                               6
+         builtin    is.character                            7
+         builtin    lengths                                 9
+         builtin    interactive                             9
+         function   base::identical                        11
+         builtin    R.home                                 11
+         builtin    /                                      13
+         ...
+      ```
+
+    - example output of `calltime-compute` (tracking only the `compute function`):
+
+      ```
+      Tracing R 'compute' function...
+
+      Count
+         TYPE       NAME                                COUNT
+         builtin    *                                       1
+         builtin    +                                       1
+         builtin    Im                                      1
+         builtin    Re                                      1
+         builtin    dim                                     1
+         builtin    dimnames                                1
+         builtin    inherits                                1
+         builtin    is.array                                1
+         function   base::colMeans                          1
+         function   base::is.data.frame                     1
+         builtin    colMeans                                2
+         builtin    lazyLoadDBfetch                         2
+         builtin    length                                  3
+         builtin    prod                                    3
+         total      total                                  20
+
+      Exclusive function elapsed times (us)
+         TYPE       NAME                                TOTAL
+         builtin    *                                       0
+         builtin    dimnames                                0
+         builtin    +                                       0
+         builtin    is.array                                2
+         builtin    dim                                     3
+         builtin    inherits                                5
+         builtin    length                                  5
+         builtin    prod                                   11
+         function   base::is.data.frame                    13
+         function   base::colMeans                         98
+         builtin    lazyLoadDBfetch                       154
+         builtin    colMeans                              182
+         builtin    Im                                    189
+         builtin    Re                                    580
+         total      total                                1249
+
+      Inclusive function elapsed times (us)
+         TYPE       NAME                                TOTAL
+         builtin    *                                       0
+         builtin    dimnames                                0
+         builtin    +                                       0
+         builtin    is.array                                2
+         builtin    dim                                     3
+         builtin    inherits                                5
+         builtin    length                                  5
+         builtin    prod                                   11
+         function   base::is.data.frame                    18
+         builtin    lazyLoadDBfetch                       154
+         builtin    colMeans                              182
+         builtin    Im                                    189
+         builtin    Re                                    580
+         function   base::colMeans                       1111
+      ```
